@@ -38,12 +38,22 @@ class SpidStrategy extends passport.Strategy {
 
   }
 
-  // Generate service provider metadata
+
+  /**
+   * Generate service provider metadata
+   *
+   * @param decryptionCert
+   * @returns {*}
+   */
   generateServiceProviderMetadata = function (decryptionCert) {
 
     const self = this;
 
     const spidOptions = this.spidOptions.sp;
+
+    if (!spidOptions.issuer) {
+      throw new Error("Missing service provider issuer");
+    }
 
     const ID = spidOptions.issuer.replace(/\W/g, "_");
 
@@ -63,48 +73,41 @@ class SpidStrategy extends passport.Strategy {
       }
     };
 
-    if (spidOptions.decryptionPvk) {
-
-      if (!decryptionCert) {
-        throw new Error(
-          "Missing decryptionCert while generating metadata for decrypting service provider"
-        );
-      }
-
-      decryptionCert = decryptionCert.replace(/-+BEGIN CERTIFICATE-+\r?\n?/, "");
-      decryptionCert = decryptionCert.replace(/-+END CERTIFICATE-+\r?\n?/, "");
-      decryptionCert = decryptionCert.replace(/-+BEGIN CERTIFICATE REQUEST-+\r?\n?/, "");
-      decryptionCert = decryptionCert.replace(/-+END CERTIFICATE REQUEST-+\r?\n?/, "");
-      decryptionCert = decryptionCert.replace(/\r\n/g, "\n");
-
-      metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:KeyDescriptor"] = [
-        {
-          "@use": "signing",
-          "ds:KeyInfo": {
-            "@xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
-            "ds:X509Data": {
-              "ds:X509Certificate": {
-                "#text": decryptionCert
-              }
-            }
-          }
-
-        },
-        {
-          "@use": "encryption",
-          "ds:KeyInfo": {
-            "@xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
-            "ds:X509Data": {
-              "ds:X509Certificate": {
-                "#text": decryptionCert
-              }
-            }
-          }
-
-        }
-      ];
-
+    if (!decryptionCert) {
+      throw new Error("Missing decryptionCert while generating metadata for decrypting service provider");
     }
+
+    decryptionCert = decryptionCert.replace(/-+BEGIN CERTIFICATE-+\r?\n?/, "");
+    decryptionCert = decryptionCert.replace(/-+END CERTIFICATE-+\r?\n?/, "");
+    decryptionCert = decryptionCert.replace(/-+BEGIN CERTIFICATE REQUEST-+\r?\n?/, "");
+    decryptionCert = decryptionCert.replace(/-+END CERTIFICATE REQUEST-+\r?\n?/, "");
+    decryptionCert = decryptionCert.replace(/\r\n/g, "\n");
+
+    metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:KeyDescriptor"] = [
+      {
+        "@use": "signing",
+        "ds:KeyInfo": {
+          "@xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
+          "ds:X509Data": {
+            "ds:X509Certificate": {
+              "#text": decryptionCert
+            }
+          }
+        }
+      },
+      {
+        "@use": "encryption",
+        "ds:KeyInfo": {
+          "@xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
+          "ds:X509Data": {
+            "ds:X509Certificate": {
+              "#text": decryptionCert
+            }
+          }
+        }
+      }
+    ];
+
 
     if (spidOptions.logoutCallbackUrl) {
       metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:SingleLogoutService"] = {
@@ -114,7 +117,7 @@ class SpidStrategy extends passport.Strategy {
     }
 
     metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:NameIDFormat"] = {
-      "#text": spidOptions.identifierFormat
+      "#text": 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient'
     }
 
     metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:AssertionConsumerService"] = {
@@ -124,27 +127,29 @@ class SpidStrategy extends passport.Strategy {
       "@isDefault": "true",
     };
 
-    if (spidOptions.attributes) {
-
-      metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:AttributeConsumingService"] = {
-        "@index": spidOptions.attributeConsumingServiceIndex,
-        "md:ServiceName": {
-          "@xml:lang": "it",
-          "#text": spidOptions.attributes.name
-        },
-        "md:ServiceDescription": {
-          "@xml:lang": "it",
-          "#text": spidOptions.attributes.description
-        },
-        "md:RequestedAttribute": spidOptions.attributes.attributes.map(item => {
-          return {
-            "@Name": item,
-            "@NameFormat":
-              "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
-          };
-        })
-      };
+    if (!spidOptions.attributes) {
+      throw new Error("Missing attributes data");
     }
+
+    metadata["md:EntityDescriptor"]["md:SPSSODescriptor"]["md:AttributeConsumingService"] = {
+      "@index": spidOptions.attributeConsumingServiceIndex,
+      "md:ServiceName": {
+        "@xml:lang": "it",
+        "#text": spidOptions.attributes.name
+      },
+      "md:ServiceDescription": {
+        "@xml:lang": "it",
+        "#text": spidOptions.attributes.description
+      },
+      "md:RequestedAttribute": spidOptions.attributes.attributes.map(item => {
+        return {
+          "@Name": item,
+          "@NameFormat":
+            "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+        };
+      })
+    };
+
 
     if (!spidOptions.organization) {
       throw new Error("Missing organization data");
@@ -301,17 +306,34 @@ class SpidStrategy extends passport.Strategy {
 
   };
 
-  // Generate unique id for the request
+
+  /**
+   * Generate unique id for the request
+   *
+   * @returns {string}
+   */
   generateUniqueID = function () {
     return crypto.randomBytes(10).toString('hex');
   };
 
-  // Generate request time
+
+  /**
+   * Generate request time
+   *
+   * @returns {string}
+   */
   generateInstant = function () {
     return new Date().toISOString();
   };
 
-  // Get additional params including RelayState
+
+  /**
+   * Get additional params including RelayState
+   *
+   * @param req
+   * @param operation
+   * @returns {{}}
+   */
   getAdditionalParams = function (req, operation) {
     const self = this;
     const additionalParams = {};
@@ -342,12 +364,23 @@ class SpidStrategy extends passport.Strategy {
     return additionalParams;
   };
 
-  // Get Callback url
+
+  /**
+   * Get Callback url
+   *
+   * @param req
+   * @returns {string|*}
+   */
   getCallbackUrl = function (req) {
     return this.spidOptions.sp.callbackUrl;
   };
 
-  // Sign request
+
+  /**
+   * Sign request
+   *
+   * @param samlMessage
+   */
   signRequest = function (samlMessage) {
 
     const self = this;
@@ -372,7 +405,16 @@ class SpidStrategy extends passport.Strategy {
     samlMessage.Signature = signer.sign(spidOptions.privateCert, 'base64');
   };
 
-  // Generate Request Url
+
+  /**
+   * Generate Request Url
+   *
+   * @param request
+   * @param response
+   * @param operation
+   * @param additionalParameters
+   * @param callback
+   */
   requestToUrl = function (request, response, operation, additionalParameters, callback) {
 
     const self = this;
@@ -424,7 +466,14 @@ class SpidStrategy extends passport.Strategy {
   };
 
 
-  // Authenticate user
+
+  /**
+   * Authenticate user
+   *
+   * @param req
+   * @param options
+   * @returns {void|*}
+   */
   authenticate = function (req, options) {
     const self = this;
 
@@ -504,9 +553,6 @@ class SpidStrategy extends passport.Strategy {
 
     function redirectIfSuccess(err, url) {
 
-      //console.log("SPID: redirectIfSuccess: " + err);
-      //console.log("SPID: redirectIfSuccess: " + url);
-
       if (err) {
         self.error(err);
       } else {
@@ -515,9 +561,6 @@ class SpidStrategy extends passport.Strategy {
     }
 
     function getUrlIfSuccess(err, url) {
-
-      // console.log("SPID: getUrlIfSuccess: " + err);
-      // console.log("SPID: getUrlIfSuccess: " + url);
 
       if (err) {
         self.error(err);
@@ -530,53 +573,30 @@ class SpidStrategy extends passport.Strategy {
     }
 
     if (req.body && req.body.SAMLResponse) {
-      self.validatePostResponse(req.body, validateCallback);
+      return self.validatePostResponse(req.body, validateCallback);
     } else if (req.body && req.body.SAMLRequest) {
-      self.validatePostRequest(req.body, validateCallback);
+      return self.validatePostRequest(req.body, validateCallback);
     } else {
 
-      //console.log("SPID: requestHandler");
-
-      const requestHandler = {
-        "login-request": function () {
-
-          //console.log("SPID: login-request - authnRequestBinding:" + authnRequestBinding);
-
-          if (authnRequestBinding === "HTTP-URL") {
-
-            // Get Idp Authorize Url to handle externally
-            self.getAuthorizeUrl(req, getUrlIfSuccess);
-
-          } else {
-
-            //console.log("SPID: _authnRequestBinding:HTTP-Redirect");
-
-            // Defaults to HTTP-Redirect
-            self.getAuthorizeUrl(req, redirectIfSuccess);
-
-          }
-        }.bind(self),
-        "logout-request": function () {
-
-          console.log("SPID: logout-request");
-
-          self.getLogoutUrl(req, redirectIfSuccess);
-
-        }.bind(self)
-      }[options.samlFallback];
-
-      if (typeof requestHandler !== "function") {
-
+      if (options.samlFallback === 'login-request') {
+        return self.getAuthorizeUrl(req, authnRequestBinding === "HTTP-URL" ? getUrlIfSuccess : redirectIfSuccess);
+      } else if (options.samlFallback === 'logout-request') {
+        console.log("SPID: logout-request");
+        return self.getLogoutUrl(req, redirectIfSuccess);
+      } else {
         console.log("SPID: requestHandler:FAIL");
-
         return self.fail();
       }
-
-      requestHandler();
     }
   };
 
-  // Get Authorize url from Identity Provider
+
+  /**
+   * Get Authorize url from Identity Provider
+   *
+   * @param req
+   * @param callback
+   */
   getAuthorizeUrl = function (req, callback) {
     const self = this;
 
@@ -587,17 +607,25 @@ class SpidStrategy extends passport.Strategy {
 
       const operation = 'authorize';
 
-      self.requestToUrl(request, null, operation, self.getAdditionalParams(req, operation), callback);
+      return self.requestToUrl(request, null, operation, self.getAdditionalParams(req, operation), callback);
     });
   };
 
-  // Generate authorize request
+
+  /**
+   * Generate authorize request
+   *
+   * @param req
+   * @param callback
+   */
   generateAuthorizeRequest = function (req, callback) {
 
     const self = this;
     const spidOptions = self.spidOptions.sp;
     const instant = self.generateInstant();
 
+    console.log('spidOptions.entryPoint');
+    console.log(spidOptions.entryPoint);
     self.cacheProvider.save(self.requestID, instant);
 
     const request = {
@@ -619,7 +647,7 @@ class SpidStrategy extends passport.Strategy {
         },
         'samlp:NameIDPolicy': {
           '@xmlns:samlp': 'urn:oasis:names:tc:SAML:2.0:protocol',
-          '@Format': spidOptions.identifierFormat,
+          '@Format': 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient',
         },
         'samlp:RequestedAuthnContext': {
           '@xmlns:samlp': 'urn:oasis:names:tc:SAML:2.0:protocol',
@@ -631,9 +659,6 @@ class SpidStrategy extends passport.Strategy {
         }
       }
     };
-
-    // console.log('🟣🟣🟣 SAML:request 🟣🟣🟣');
-    // console.log(request);
 
     callback(null, xmlbuilder.create(request).end());
 
@@ -746,14 +771,18 @@ class SpidStrategy extends passport.Strategy {
   };
 
 
-  // Get certs use to check validation
+  /**
+   * Get certs use to check validation
+   *
+   * @returns {Array}
+   */
   certsToCheck = function () {
 
     const self = this;
     const spidOptions = self.spidOptions.sp;
 
     if (!spidOptions.cert) {
-      return false;
+      return [];
     }
 
     const certs = spidOptions.cert;
@@ -762,29 +791,6 @@ class SpidStrategy extends passport.Strategy {
 
   };
 
-  // Validate timestamp
-  checkTimestampsValidityError = function (nowMs, notBefore, notOnOrAfter) {
-    const self = this;
-
-    if (self._acceptedClockSkewMs === -1)
-      return null;
-
-    if (notBefore) {
-      const notBeforeMs = Date.parse(notBefore);
-      if (nowMs + self._acceptedClockSkewMs < notBeforeMs) {
-        return new SpidError(666, 'Assertion not yet valid');
-      }
-    }
-
-    if (notOnOrAfter) {
-      const notOnOrAfterMs = Date.parse(notOnOrAfter);
-      if (nowMs - self._acceptedClockSkewMs >= notOnOrAfterMs) {
-        return new SpidError(666, 'Issue Instant expired', null);
-      }
-    }
-
-    return null;
-  };
 
 
   /***
@@ -845,7 +851,13 @@ class SpidStrategy extends passport.Strategy {
 
   };
 
-  // Extract cert and convert it to pem string
+
+  /**
+   * Extract cert and convert it to pem string
+   *
+   * @param cert
+   * @returns {string}
+   */
   certToPEM = function (cert) {
 
     cert = cert[0].match(/.{1,64}/g).join('\n');
@@ -858,7 +870,15 @@ class SpidStrategy extends passport.Strategy {
     return cert;
   };
 
-  // Checks if signature is signed with a given cert.
+  /**
+   * Checks if signature is signed with a given cert.
+   *
+   * @param signature
+   * @param cert
+   * @param fullXml
+   * @param currentNode
+   * @returns {boolean|*}
+   */
   validateSignatureForCert = function (signature, cert, fullXml, currentNode) {
     const self = this;
     const sig = new SignedXml();
@@ -894,7 +914,15 @@ class SpidStrategy extends passport.Strategy {
 
   };
 
-  // Validate Signature
+
+  /**
+   * Validate Signature
+   *
+   * @param fullXml
+   * @param currentNode
+   * @param certs
+   * @returns {boolean|*}
+   */
   validateSignature = function (fullXml, currentNode, certs) {
     const self = this;
 
@@ -916,7 +944,15 @@ class SpidStrategy extends passport.Strategy {
 
   };
 
-  // Process Post request after validation
+
+  /**
+   * Process Post request after validation
+   *
+   * @param self
+   * @param doc
+   * @param callback
+   * @returns {*}
+   */
   processValidlySignedPostRequest = function (self, doc, callback) {
 
     const request = doc.LogoutRequest;
@@ -956,7 +992,14 @@ class SpidStrategy extends passport.Strategy {
     }
   }
 
-  // Process Assertion after validation
+
+  /**
+   * Process Assertion after validation
+   *
+   * @param xml
+   * @param inResponseTo
+   * @param callback
+   */
   processAssertion = function (xml, inResponseTo, callback) {
 
     const self = this;
@@ -1004,7 +1047,7 @@ class SpidStrategy extends passport.Strategy {
       });
 
 
-      profile.getAssertionXml = (xml) => {
+      profile.getAssertionXml = () => {
         return xml;
       };
 
@@ -1015,7 +1058,12 @@ class SpidStrategy extends passport.Strategy {
   };
 
 
-  // Validate Post Request
+  /**
+   * Validate Post Request
+   *
+   * @param container
+   * @param callback
+   */
   validatePostRequest = function (container, callback) {
     const self = this;
     const xml = Buffer.from(container.SAMLRequest, 'base64').toString('utf8');
@@ -1034,7 +1082,7 @@ class SpidStrategy extends passport.Strategy {
       const certs = self.certsToCheck();
 
       // Check if this document has a valid top-level signature
-      if (certs && !self.validateSignature(xml, dom.documentElement, certs)) {
+      if (certs.length && !self.validateSignature(xml, dom.documentElement, certs)) {
         return callback(new Error('Invalid signature'));
       }
 
@@ -1043,7 +1091,14 @@ class SpidStrategy extends passport.Strategy {
     });
   };
 
-  // Validate Post Response
+
+  /**
+   * Validate Post Response
+   *
+   * @param container
+   * @param callback
+   * @returns {void|*}
+   */
   validatePostResponse = function (container, callback) {
 
     const self = this;
@@ -1390,9 +1445,7 @@ class SpidStrategy extends passport.Strategy {
     // Validate Issuer and Assertion Issuer
 
     const issuerNode = xpath(responseNode, "./*[local-name()='Issuer']");
-    const issuerFormatAttr = xpath(issuerNode[0], "@Format");
     const assertionIssuerNode = xpath(responseNode, "./*[local-name()='Assertion']/*[local-name()='Issuer']");
-    const assertionIssuerFormatAttr = xpath(assertionIssuerNode[0], "@Format");
 
     if (!issuerNode.length) {
       return self.error(new SpidError(28, 'Missing Issuer', inResponseTo));
@@ -1412,8 +1465,12 @@ class SpidStrategy extends passport.Strategy {
 
     if (issuerNode[0].firstChild.nodeValue !== assertionIssuerNode[0].firstChild.nodeValue) {
       return self.error(new SpidError(29, 'Invalid Issuer', inResponseTo));
-      // return self.error(new SpidError(29, 'Invalid Issuer', inResponseTo));
+      // return self.error(new SpidError(69, 'Invalid Issuer', inResponseTo));
     }
+
+    const assertionIssuerFormatAttr = xpath(assertionIssuerNode[0], "@Format");
+
+    const issuerFormatAttr = xpath(issuerNode[0], "@Format");
 
     if (!issuerFormatAttr.length) {
       return self.error(new SpidError(31, 'Missing Format Issuer', inResponseTo));
@@ -1604,6 +1661,7 @@ class SpidStrategy extends passport.Strategy {
 
 
 }
+
 
 class SpidError extends Error {
   constructor(code, message, requestId = null) {
