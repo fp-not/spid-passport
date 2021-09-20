@@ -7,8 +7,9 @@ const crypto = require("crypto");
 const zlib = require("zlib");
 const url = require("url");
 const querystring = require("querystring");
-const inMemoryCacheProvider = require('./inmemory-cache-provider.js');
-const fileCacheProvider = require('./file-cache-provider.js');
+const InMemoryCacheProvider = require('./inmemory-cache-provider.js');
+const FileCacheProvider = require('./file-cache-provider.js');
+const RedisCacheProvider = require('./redis-cache-provider.js');
 
 class SpidStrategy extends passport.Strategy {
 
@@ -34,7 +35,27 @@ class SpidStrategy extends passport.Strategy {
     this._passReqToCallback = !!options.passReqToCallback;
     this._authnRequestBinding = options.authnRequestBinding || "HTTP-Redirect";
     this._acceptedClockSkewMs = options.acceptedClockSkewMs || 60 * 10000;
-    this.cacheProvider = options.cacheProvider === 'FILE' ? new fileCacheProvider() : new inMemoryCacheProvider();
+
+    if(options.cacheProvider === 'REDIS'){
+      this.cacheProvider = new RedisCacheProvider( options.redis );
+    }else if(options.cacheProvider === 'FILE'){
+      this.cacheProvider = new FileCacheProvider();
+    }else {
+      this.cacheProvider = new InMemoryCacheProvider();
+    }
+
+    this.cacheProvider.set('initSpidCacheProvider', new Date().toString()).then( function(res){
+      if(!res){
+        throw Error('Cannot write to cache');
+      }
+      // console.log('initSpidCacheProvider');
+    });
+    this.cacheProvider.get('initSpidCacheProvider').then( function(res){
+      if(!res){
+        throw Error('Cannot read from cache');
+      }
+      // console.log(res);
+    });
 
   }
 
@@ -626,7 +647,7 @@ class SpidStrategy extends passport.Strategy {
 
     console.log('spidOptions.entryPoint');
     console.log(spidOptions.entryPoint);
-    self.cacheProvider.save(self.requestID, instant);
+    self.cacheProvider.set(self.requestID, instant);
 
     const request = {
       'samlp:AuthnRequest': {
@@ -1099,7 +1120,7 @@ class SpidStrategy extends passport.Strategy {
    * @param callback
    * @returns {void|*}
    */
-  validatePostResponse = function (container, callback) {
+  validatePostResponse = async function (container, callback) {
 
     const self = this;
     const spidOptions = self.spidOptions.sp;
@@ -1138,9 +1159,7 @@ class SpidStrategy extends passport.Strategy {
 
     const inResponseTo = inResponseToNode[0].nodeValue;
 
-    // console.log(self.cacheProvider.debug());
-
-    if (!self.cacheProvider.get(inResponseTo)) {
+    if (!await self.cacheProvider.get(inResponseTo)) {
       return self.error(new SpidError(18, 'Invalid inResponseTo', inResponseTo));
     }
 

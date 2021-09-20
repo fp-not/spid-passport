@@ -63,38 +63,33 @@ class FileCacheProvider {
 
   }
 
-  fileExists = (file) => {
-    try {
-      fs.accessSync(file, fs.constants.F_OK);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
   /**
    * Returns the value of the specified key in the cache
    * @param key
    */
   get = (key) => {
-
     const cacheFile = this.cacheFile(key);
-    if (this.fileExists(cacheFile)) {
-      return fs.readFileSync(cacheFile);
-    } else {
-      return null;
-    }
+
+    return new Promise(function(resolve, reject){
+      fs.readFile(cacheFile, 'utf8', (err, data) => {
+        err ? reject(err) : resolve(data);
+      });
+    });
+
   }
 
-  save = (key, value) => {
+  set = (key, value) => {
 
     const cacheFile = this.cacheFile(key);
-    if (fs.writeFileSync(cacheFile, value)) {
-      return true;
-    } else {
-      return false;
-    }
+
+    return new Promise((resolve, reject) => {
+      fs.writeFile(cacheFile, value, (err) => {
+        err ? reject(err) : resolve(true);
+      });
+    });
+
   }
+
 
   /**
    * Removes an item from the cache if it exists
@@ -103,12 +98,11 @@ class FileCacheProvider {
   remove = (key) => {
 
     const cacheFile = this.cacheFile(key);
-    if (fs.unlinkSync(cacheFile)) {
-      return true;
-    } else {
-      return false;
-    }
-
+    return new Promise((resolve, reject) => {
+      fs.unlink(cacheFile, (err) => {
+        err ? reject(err) : resolve(true);
+      });
+    });
   }
 
   cacheKeys = () => {
@@ -127,9 +121,9 @@ class FileCacheProvider {
   }
 
   debug = () => {
-    return this.cacheKeys().map((key) => {
+    this.cacheKeys().map((key) => {
       //return `${this.options.cacheDir}/${key}`;
-      return `${key} ${this.createdAt(key, false)}`;
+      console.log(`${key} ${this.createdAt(key, false)}`);
     });
   }
 

@@ -52,19 +52,19 @@ class InmemoryCacheProvider {
    * Internally will keep track of the time the item was added to the cache
    * @param key
    * @param value
-   * @returns {boolean}
+   * @returns {Promise}
    */
-  save = function (key, value) {
-    if (!this.cacheKeys[key]) {
-      this.cacheKeys[key] = {
-        createdAt: new Date().getTime(),
-        value: value
-      };
-
-      return true;
-    }
-
-    return false;
+  set = function (key, value) {
+    return new Promise((resolve, reject) => {
+      if (!this.cacheKeys[key]) {
+        this.cacheKeys[key] = {
+          createdAt: new Date().getTime(),
+          value: value
+        };
+        resolve(true);
+      }
+      reject();
+    });
 
   }
 
@@ -72,23 +72,29 @@ class InmemoryCacheProvider {
   /**
    * Returns the value of the specified key in the cache
    * @param key
+   * @returns {Promise}
    */
   get = function (key) {
-    return this.cacheKeys[key] ?? null;
+    return new Promise((resolve, reject) => {
+      return this.cacheKeys[key] ? resolve(this.cacheKeys[key].value) : reject();
+    });
   }
 
 
   /**
    * Removes an item from the cache if it exists
    * @param key
+   * @returns {Promise}
    */
   remove = function (key) {
-    if (this.cacheKeys[key]) {
-      delete this.cacheKeys[key];
-      return true;
-    } else {
-      return false;
-    }
+    return new Promise((resolve, reject) => {
+      if (this.cacheKeys[key]) {
+        delete this.cacheKeys[key];
+        return resolve(true);
+      } else {
+        return reject();
+      }
+    });
   }
 
 
