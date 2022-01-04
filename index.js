@@ -672,7 +672,7 @@ class SpidStrategy extends passport.Strategy {
         },
         'samlp:RequestedAuthnContext': {
           '@xmlns:samlp': 'urn:oasis:names:tc:SAML:2.0:protocol',
-          '@Comparison': 'exact',
+          '@Comparison': 'minimum',
           'saml:AuthnContextClassRef': {
             '@xmlns:saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
             '#text': spidOptions.authnContext
