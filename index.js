@@ -36,22 +36,22 @@ class SpidStrategy extends passport.Strategy {
     this._authnRequestBinding = options.authnRequestBinding || "HTTP-Redirect";
     this._acceptedClockSkewMs = options.acceptedClockSkewMs || 60 * 10000;
 
-    if(options.cacheProvider === 'REDIS'){
-      this.cacheProvider = new RedisCacheProvider( options.redis );
-    }else if(options.cacheProvider === 'FILE'){
+    if (options.cacheProvider === 'REDIS') {
+      this.cacheProvider = new RedisCacheProvider(options.redis);
+    } else if (options.cacheProvider === 'FILE') {
       this.cacheProvider = new FileCacheProvider();
-    }else {
+    } else {
       this.cacheProvider = new InMemoryCacheProvider();
     }
 
-    this.cacheProvider.set('initSpidCacheProvider', new Date().toString()).then( function(res){
-      if(!res){
+    this.cacheProvider.set('initSpidCacheProvider', new Date().toString()).then(function (res) {
+      if (!res) {
         throw Error('Cannot write to cache');
       }
       // console.log('initSpidCacheProvider');
     });
-    this.cacheProvider.get('initSpidCacheProvider').then( function(res){
-      if(!res){
+    this.cacheProvider.get('initSpidCacheProvider').then(function (res) {
+      if (!res) {
         throw Error('Cannot read from cache');
       }
       // console.log(res);
@@ -487,7 +487,6 @@ class SpidStrategy extends passport.Strategy {
   };
 
 
-
   /**
    * Authenticate user
    *
@@ -525,6 +524,7 @@ class SpidStrategy extends passport.Strategy {
       }
 
       spidOptions.entryPoint = idp.entryPoint;
+      spidOptions.entityID = idp.entityID;
       spidOptions.logoutUrl = idp.logoutUrl;
       spidOptions.cert = idp.cert;
 
@@ -645,9 +645,8 @@ class SpidStrategy extends passport.Strategy {
     const spidOptions = self.spidOptions.sp;
     const instant = self.generateInstant();
 
-    console.log('spidOptions.entryPoint');
-    console.log(spidOptions.entryPoint);
     self.cacheProvider.set(self.requestID, instant);
+    self.cacheProvider.set(self.requestID + '_idp', spidOptions.entityID);
 
     const request = {
       'samlp:AuthnRequest': {
@@ -813,7 +812,6 @@ class SpidStrategy extends passport.Strategy {
   };
 
 
-
   /***
    * Check if date is valid iso format with or without milliseconds
    *
@@ -903,6 +901,7 @@ class SpidStrategy extends passport.Strategy {
   validateSignatureForCert = function (signature, cert, fullXml, currentNode) {
     const self = this;
     const sig = new SignedXml();
+
     sig.keyInfoProvider = {
       getKeyInfo: function (key) {
         return "<X509Data></X509Data>";
@@ -931,7 +930,9 @@ class SpidStrategy extends passport.Strategy {
       return false;
     }
 
-    return sig.checkSignature(fullXml);
+    const result = sig.checkSignature(fullXml);
+
+    return result;
 
   };
 
@@ -959,9 +960,14 @@ class SpidStrategy extends passport.Strategy {
 
     const signature = signatures[0];
 
-    return certs.some((certToCheck) => {
+    const signatureValue = xpath(signature, "./*[local-name()='SignatureValue']/text()");
+    const cert = xpath(signature, "./*[local-name()='KeyInfo']/*[local-name()='X509Data']/*[local-name()='X509Certificate']/text()");
+
+    const result = certs.some((certToCheck) => {
       return self.validateSignatureForCert(signature, certToCheck, fullXml, currentNode);
     });
+
+    return result;
 
   };
 
@@ -1125,6 +1131,7 @@ class SpidStrategy extends passport.Strategy {
     const self = this;
     const spidOptions = self.spidOptions.sp;
     const nowMs = new Date().getTime();
+
 
     if (!container.SAMLResponse) {
       return self.error(new SpidError(-1, 'No response from server'));
@@ -1399,7 +1406,7 @@ class SpidStrategy extends passport.Strategy {
     }
 
     if (!assertionSubjectSubjectConfirmationText.toString().trim()) {
-      return self.error(new SpidError(51, 'Empty Assertion Subject Confirmation', inResponseTo));
+      return self.error(new SpidError(51, 'Empty Assertion Subject Confirmation (51-56)', inResponseTo));
       //  return self.error(new SpidError(56, 'Empty Assertion Subject Confirmation', inResponseTo));
     }
 
@@ -1482,20 +1489,21 @@ class SpidStrategy extends passport.Strategy {
       return self.error(new SpidError(67, 'Empty Assertion Issuer', inResponseTo));
     }
 
-    if (issuerNode[0].firstChild.nodeValue !== assertionIssuerNode[0].firstChild.nodeValue) {
+    const entityID = await self.cacheProvider.get(inResponseTo + '_idp');
+
+    if (issuerNode[0].firstChild.nodeValue !== entityID) {
       return self.error(new SpidError(29, 'Invalid Issuer', inResponseTo));
-      // return self.error(new SpidError(69, 'Invalid Issuer', inResponseTo));
+    }
+
+    if (assertionIssuerNode[0].firstChild.nodeValue !== entityID) {
+      return self.error(new SpidError(69, 'Invalid Issuer', inResponseTo));
     }
 
     const assertionIssuerFormatAttr = xpath(assertionIssuerNode[0], "@Format");
 
     const issuerFormatAttr = xpath(issuerNode[0], "@Format");
 
-    if (!issuerFormatAttr.length) {
-      return self.error(new SpidError(31, 'Missing Format Issuer', inResponseTo));
-    }
-
-    if (issuerFormatAttr[0].nodeValue !== 'urn:oasis:names:tc:SAML:2.0:nameid-format:entity') {
+    if (issuerFormatAttr.length && issuerFormatAttr[0].nodeValue !== 'urn:oasis:names:tc:SAML:2.0:nameid-format:entity') {
       return self.error(new SpidError(30, 'Invalid Format Issuer', inResponseTo));
     }
 
@@ -1521,7 +1529,7 @@ class SpidStrategy extends passport.Strategy {
     }
 
     if (assertionConditionsNode[0].childNodes.length === 1 && !assertionConditionsNode[0].nodeValue) {
-      return self.error(new SpidError(73, 'Empty Assertion Conditions', inResponseTo));
+      return self.error(new SpidError(73, 'Empty Assertion Conditions (73-84)', inResponseTo));
       //return self.error(new SpidError(84, 'Empty Assertion Conditions', inResponseTo));
     }
 
@@ -1563,7 +1571,7 @@ class SpidStrategy extends passport.Strategy {
     const assertionConditionsAudienceRestrictionNode = xpath(assertionConditionsNode[0], "./*[local-name()='AudienceRestriction']");
 
     if (assertionConditionsAudienceRestrictionNode[0].childNodes.length === 1 && !assertionConditionsAudienceRestrictionNode[0].nodeValue) {
-      return self.error(new SpidError(83, 'Empty Assertion Conditions AudienceRestriction', inResponseTo));
+      return self.error(new SpidError(83, 'Empty Assertion Conditions AudienceRestriction (83-86)', inResponseTo));
       // return self.error(new SpidError(86, 'Empty Assertion Conditions AudienceRestriction', inResponseTo));
     }
 
@@ -1587,14 +1595,14 @@ class SpidStrategy extends passport.Strategy {
     }
 
     if (assertionAuthnStatementNode[0].childNodes.length === 1 && !assertionAuthnStatementNode[0].nodeValue) {
-      return self.error(new SpidError(88, 'Empty Assertion AuthnStatement', inResponseTo));
+      return self.error(new SpidError(88, 'Empty Assertion AuthnStatement (88-91)', inResponseTo));
       // return self.error(new SpidError(91, 'Empty Assertion Conditions AuthnStatement AuthnContext', inResponseTo));
     }
 
     const assertionAuthnStatementAuthnContextNode = xpath(assertionAuthnStatementNode[0], "./*[local-name()='AuthnContext']");
 
     if (assertionAuthnStatementAuthnContextNode[0].childNodes.length === 1 && !assertionAuthnStatementAuthnContextNode[0].nodeValue) {
-      return self.error(new SpidError(90, 'Empty Assertion Conditions AuthnStatement AuthnContext', inResponseTo));
+      return self.error(new SpidError(90, 'Empty Assertion Conditions AuthnStatement AuthnContext (93-90)', inResponseTo));
       // return self.error(new SpidError(93, 'Empty Assertion Conditions AuthnStatement AuthnContext AuthnContextClassRef', inResponseTo));
     }
 
@@ -1664,14 +1672,14 @@ class SpidStrategy extends passport.Strategy {
     if (!assertionSignature.length) {
       return self.error(new SpidError(3, 'Invalid signature - Assertion not signed', inResponseTo));
     }
-
-    const validAssertionSignature = self.validateSignature(xml, assertionNode[0], self.certsToCheck());
+    
     const validResponseSignature = self.validateSignature(xml, responseNode, self.certsToCheck());
+    const validAssertionSignature = self.validateSignature(xml, assertionNode[0], self.certsToCheck());
 
     if (!validResponseSignature || !validAssertionSignature) {
-      return self.error(new SpidError(4, 'Response Invalid Signature', inResponseTo));
-      // return self.error(new SpidError(100, 'Response Invalid Assertion Signature', inResponseTo));
+      return self.error(new SpidError(4, 'Invalid Signature (4-100)', inResponseTo));
     }
+
 
     // if no error throw process assertion
     return self.processAssertion(assertionNode.toString(), inResponseTo, callback);
