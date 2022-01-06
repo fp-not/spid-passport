@@ -1248,7 +1248,7 @@ class SpidStrategy extends passport.Strategy {
     }
 
     if (!statusCodeNode.length) {
-      return self.error(new SpidError(22, 'Empty Status', inResponseTo));
+      return self.error(new SpidError(22, 'Empty Status (22-25)', inResponseTo));
       //return self.error(new SpidError(25, 'Empty Status', inResponseTo));
     }
 
